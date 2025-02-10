@@ -1,0 +1,212 @@
+#include <ESP8266WiFi.h>
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <DHT.h>
+#include <map>
+
+// WiFi credentials
+const char* ssid = "js";
+const char* password = "jinsong1228";
+
+// ThingSpeak API information
+const char* host = "api.thingspeak.com";
+const char* apiKey = "USQ5U92IH9STX55F";
+
+// DHT sensor setup (DHT112, PIN11)
+#define DHTPIN 12
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+// Initialize WiFi client and server
+WiFiClient client;
+AsyncWebServer server(80);
+
+// Variables to store sensor readings
+float humidity = 0;
+float temperature = 0;
+
+// Valid credentials for authentication (This is a fixed setup)
+const char* validUsername = "admin";
+const char* validPassword = "admin";
+
+// Rate limiter configuration
+std::map<String, unsigned long> lastRequestTime;
+std::map<String, int> requestCount;
+std::map<String, unsigned long> blockList;
+const unsigned long blockDuration = 60000;  // Block IP for 60 seconds
+const int requestLimit = 5;       // Max 5 requests within 10 seconds
+const unsigned long timeFrame = 10000; // 10-second time frame for request counting
+
+
+// Function prototypes
+bool authenticate();
+void connectToWiFi();
+
+// Timer variables for data collection every 15 seconds.
+unsigned long previousMillis = 0;
+const long interval = 15000; // Interval to collect data (milliseconds)
+
+void setup() {
+    Serial.begin(115200);
+    Serial.println("FYP_DHT11 Temperature Test\n");
+
+    while (!Serial) {
+        delay(10);
+    }
+
+    while (!authenticate()) {
+        Serial.println("Authentication failed! Please try again.");
+    }
+    Serial.println("Authentication successful!");
+
+    dht.begin();
+    connectToWiFi();
+
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+        String clientIP = request->client()->remoteIP().toString();
+        unsigned long currentTime = millis();
+
+        Serial.println("Client IP: " + clientIP);
+        Serial.println("Current Time: " + String(currentTime));
+
+        if (blockList.count(clientIP) > 0) {
+            if (currentTime - blockList[clientIP] < blockDuration) {
+                Serial.println("Blocked request from: " + clientIP);
+                request->send(403, "text/plain", "403 Forbidden: You are temporarily blocked.");
+                return;
+            } else {
+                blockList.erase(clientIP);
+                requestCount.erase(clientIP);
+                lastRequestTime.erase(clientIP);
+            }
+        }
+
+        if (lastRequestTime.count(clientIP) > 0) {
+            if (currentTime - lastRequestTime[clientIP] < timeFrame) {
+                requestCount[clientIP]++;
+                Serial.println("Request Count: " + String(requestCount[clientIP]));
+            } else {
+                requestCount[clientIP] = 1;
+                Serial.println("Request Count Reset");
+            }
+        } else {
+            requestCount[clientIP] = 1;
+            Serial.println("First Request");
+        }
+
+        lastRequestTime[clientIP] = currentTime;
+
+        if (requestCount[clientIP] > requestLimit) {
+            blockList[clientIP] = currentTime;
+            Serial.println("IP BLOCKED (should see this): " + clientIP);
+            request->send(429, "text/plain", "429 Too Many Requests: You have been temporarily blocked.");
+            return;
+        }
+
+        String html = "<html><head>";
+        html += "<meta charset='UTF-8'>";
+        html += "<style>";
+        html += "body { background-color: #0073e6; color: #fff; font-family: Arial, sans-serif; margin: 0; padding: 0; }";
+        html += ".container { max-width: 600px; margin: 50px auto; padding: 20px; background-color: rgba(255, 255, 255, 0.9); border-radius: 10px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.2); }";
+        html += "h1 { text-align: center; color: #0073e6; margin-bottom: 20px; }";
+        html += ".sensor { margin-bottom: 20px; padding: 15px; background-color: #f0f0f0; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); }";
+        html += ".sensor p { margin: 0; color: #333; font-size: 18px; }";
+        html += "</style>";
+        html += "</head><body>";
+        html += "<div class='container'>";
+        html += "<h1>C300 FYP Project (DHT11 & ESP8266)</h1>";
+        html += "<div class='sensor'>";
+        html += "<p>Temperature: " + String(temperature) + " °C</p>"; // Use global temperature
+        html += "</div>";
+        html += "<div class='sensor'>";
+        html += "<p>Humidity: " + String(humidity) + " %</p>"; // Use global humidity
+        html += "</div>";
+        html += "</div>";
+        html += "</body></html>";
+        request->send(200, "text/html", html);
+    });
+
+    server.begin();
+    Serial.println("HTTP server started");
+}
+
+void loop() {
+    unsigned long currentMillis = millis();
+
+    if (currentMillis - previousMillis >= interval) {
+        previousMillis = currentMillis;
+
+        humidity = dht.readHumidity();
+        temperature = dht.readTemperature();
+
+        if (isnan(humidity) || isnan(temperature)) {
+            Serial.println("Failed to read from DHT sensor!");
+            return;
+        }
+
+        Serial.print("Current humidity = ");
+        Serial.print(humidity);
+        Serial.print("% ");
+        Serial.print("temperature = ");
+        Serial.print(temperature);
+        Serial.println(" C");
+
+        if (client.connect(host, 80)) {
+            String url = "/update?api_key=";
+            url += apiKey;
+            url += "&field1=";
+            url += String(temperature);
+            url += "&field2=";
+            url += String(humidity);
+            Serial.print("Requesting URL: ");
+            Serial.println(url);
+
+            client.print(String("GET ") + url + " HTTP/1.1\r\n" +
+                         "Host: " + host + "\r\n" +
+                         "Connection: close\r\n\r\n");
+            delay(1000);
+
+            while (client.available()) {
+                String line = client.readStringUntil('\r');
+                Serial.print(line);
+            }
+            client.stop();
+            Serial.println();
+        } else {
+            Serial.println("Failed to connect to ThingSpeak");
+        }
+    }
+
+    delay(10);
+}
+
+bool authenticate() {
+    Serial.print("Enter username: ");
+    while (!Serial.available()) { }
+    String inputUsername = Serial.readStringUntil('\n');
+    inputUsername.trim();
+
+    Serial.print("Enter password: ");
+    while (!Serial.available()) { }
+    String inputPassword = Serial.readStringUntil('\n');
+    inputPassword.trim();
+
+    return (inputUsername == validUsername) && (inputPassword == validPassword);
+}
+
+void connectToWiFi() {
+    Serial.println();
+    Serial.print("Connecting to ");
+    Serial.println(ssid);
+
+    WiFi.begin(ssid, password);
+
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+
+    Serial.println("\nWiFi connected");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+}

@@ -1,0 +1,33 @@
+%22042084NGJINSONG
+% Enter your MATLAB Code below
+
+% Channel and API key details
+readChId = 2804117; % Replace with your channel number
+writeChId = 2804117; % Replace with your channel number
+readKey = 'Q0QCHGEIE408XPXS'; % Replace with your channel read key
+writeKey = 'USQ5U92IH9STX55F'; % Replace with your channel write key
+
+% Read data from the channel with timestamps
+[temperature, timeStamps] = thingSpeakRead(readChId, 'Fields', 1, 'NumPoints', 20, 'ReadKey', readKey); % Temperature in Celsius
+humidity = thingSpeakRead(readChId, 'Fields', 2, 'NumPoints', 20, 'ReadKey', readKey); % Humidity in percentage
+
+% Check if the timestamps are in the correct format
+if ~isa(timeStamps, 'datetime')
+    % Convert timestamps to datetime format and set the time zone to Singapore
+    timeStamps = datetime(timeStamps, 'ConvertFrom', 'posixtime', 'TimeZone', 'Asia/Singapore');
+end
+
+% Calculate the dew point in Celsius
+dewpoint = temperature - ((100 - humidity) / 5);
+
+% Write data to your ThingSpeak channel with timestamps
+thingSpeakWrite(writeChId, [temperature, humidity, dewpoint], ...
+    'Fields', [1, 2, 3], 'TimeStamps', timeStamps, 'WriteKey', writeKey);
+
+% Display the data being written to the channel
+disp('Temperature (°C):');
+disp(temperature);
+disp('Humidity (%):');
+disp(humidity);
+disp('Dew Point (°C):');
+disp(dewpoint);

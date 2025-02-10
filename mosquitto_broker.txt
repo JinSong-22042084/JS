@@ -1,0 +1,98 @@
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+#include <DHT.h>
+
+//DEFINE based on your device pin 22042084ngjinsong
+#define DHTPIN 12
+#define DHTTYPE 11
+DHT dht(DHTPIN, DHTTYPE);
+
+//DEFINE your own SSID & PASSWORD
+#define wifi_ssid "js"
+#define wifi_password "jinsong1228"
+//*IMPORTANT* CHANGE YOUR MQTT SERVER TO YOUR HOST IP ADDRESS.
+#define mqtt_server "192.168.81.126"
+
+#define humidity_topic "sensor/DHT11/humidity"
+#define temperature_celsius_topic "sensor/DHT11/temperature_celsius"
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  setup_wifi(); //Initialize wifi
+  client.setServer(mqtt_server, 1883); //PORT 1883
+}
+
+void setup_wifi() { //Connects to a wifi
+  delay(10);
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(wifi_ssid);
+
+  WiFi.begin(wifi_ssid, wifi_password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+
+    if (client.connect("ESP8266Client")) {
+      Serial.println("connected");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  delay(2000);
+
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+
+  if (isnan(h) || isnan(t)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+
+  float hic = dht.computeHeatIndex(t, h, false); //prints the temperature
+
+  Serial.print("Humidity: ");
+  Serial.print(h);
+  Serial.print(" %\t");
+  Serial.print("Temperature: ");
+  Serial.print(t);
+  Serial.print(" *C\t");
+  Serial.print("Heat index: ");
+  Serial.print(hic);
+  Serial.println(" *C");
+
+  Serial.print("Temperature in Celsius: ");
+  Serial.println(String(t).c_str());
+  client.publish(temperature_celsius_topic, String(t).c_str(), true);
+
+  Serial.print("Humidity: ");
+  Serial.println(String(h).c_str());
+  client.publish(humidity_topic, String(h).c_str(), true);
+}

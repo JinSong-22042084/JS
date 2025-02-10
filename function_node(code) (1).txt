@@ -1,0 +1,15 @@
+//22042084 NG JIN SONG
+var payload = JSON.parse(msg.payload); // Parse the payload as JSON
+if (payload && payload.feeds && payload.feeds.length > 0) {
+var feeds = payload.feeds; //Retrieves latest data from ThingSpeak.
+var latestFeed = feeds[feeds.length - 1];
+msg.payload = {
+Temperature: latestFeed.field1, 
+Humidity: latestFeed.field2,
+};
+} else {
+msg.payload = {
+error: "ERROR: NO DATA AVAILABLE" // sends an error message
+};
+}
+return msg; //Returns the new payload.

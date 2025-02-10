@@ -1,0 +1,55 @@
+%22042084(NG JIN SONG)
+% Define channel IDs and API keys
+channelId = 2804117;
+readKey = 'Q0QCHGEIE408XPXS';
+
+% Read data from the channel with timestamps
+[temperature, timeStamps] = thingSpeakRead(channelId, 'Fields', 1, ...
+    'NumPoints', 20, 'ReadKey', readKey); % Temperature in Celsius
+humidity = thingSpeakRead(channelId, 'Fields', 2, ...
+    'NumPoints', 20, 'ReadKey', readKey); % Humidity in percentage
+
+% Check if the timestamps are in the correct format
+if ~isa(timeStamps, 'datetime')
+    % Convert timestamps to datetime format and set the time zone to Singapore
+    timeStamps = datetime(timeStamps, 'ConvertFrom', 'posixtime', ...
+        'TimeZone', 'Asia/Singapore');
+end
+
+% Calculate the dew point in Celsius
+dewpoint = temperature - ((100 - humidity) / 5);
+
+% Plot the data
+figure;
+
+% Plot Temperature
+subplot(3, 1, 1);
+plot(timeStamps, temperature, '-o');
+title('Temperature (°C)');
+xlabel('Time');
+ylabel('Temperature (°C)');
+grid on;
+
+% Plot Humidity
+subplot(3, 1, 2);
+plot(timeStamps, humidity, '-o');
+title('Humidity (%)');
+xlabel('Time');
+ylabel('Humidity (%)');
+grid on;
+
+% Plot Dew Point
+subplot(3, 1, 3);
+plot(timeStamps, dewpoint, '-o');
+title('Dew Point (°C)');
+xlabel('Time');
+ylabel('Dew Point (°C)');
+grid on;
+
+% Display the data being plotted
+disp('Temperature (°C):');
+disp(temperature);
+disp('Humidity (%):');
+disp(humidity);
+disp('Dew Point (°C):');
+disp(dewpoint);
